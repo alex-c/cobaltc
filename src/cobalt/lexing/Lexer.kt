@@ -1,5 +1,7 @@
 package cobalt.lexing
 
+import cobalt.exceptions.CobaltSyntaxError
+
 class Lexer {
 
     //Possible delimiters to words
@@ -15,7 +17,7 @@ class Lexer {
 
         //Code position and line count to keep track of
         var position = 0
-        var line = 0
+        var line = 1
 
         //Start tokenizing
         while (position < code.length) {
@@ -91,7 +93,7 @@ class Lexer {
                         if (code[position + 1] == '/') {
                             val eolPosition = findNextInstanceOfCharInString(code, position, listOf('\r', '\n'))
                             if (eolPosition == -1) {
-                                //TODO: throw exception
+                                throw CobaltSyntaxError(line, "Could not find EOL for comment.")
                             } else {
                                 position = eolPosition
                             }
@@ -127,8 +129,8 @@ class Lexer {
                                 "bool" -> tokens.add(Token("type", line, word))
                                 "int" -> tokens.add(Token("type", line, word))
                                 "float" -> tokens.add(Token("type", line, word))
-                                "true" -> tokens.add(Token("literal", line, "bool", word))
-                                "false" -> tokens.add(Token("literal", line, "bool", word))
+                                "true" -> tokens.add(Token("literal", line, "bool", word.toBoolean()))
+                                "false" -> tokens.add(Token("literal", line, "bool", word.toBoolean()))
 
                                 //Identifiers and number literals
                                 else -> {
@@ -139,7 +141,11 @@ class Lexer {
                                     if (intValue != null) {
                                         tokens.add(Token("literal", line, "int", intValue))
                                     } else if(floatValue != null) {
-                                        tokens.add(Token("literal", line, "float", floatValue))
+                                        if (!word.startsWith('.') && !word.endsWith('.')) {
+                                            tokens.add(Token("literal", line, "float", floatValue))
+                                        } else {
+                                            throw CobaltSyntaxError(line, "Floating point values have to have at least one figure before and one after the dot.")
+                                        }
                                     }
 
                                     //Identifiers
@@ -147,7 +153,7 @@ class Lexer {
                                         if (isValidIdentifier(word)) {
                                             tokens.add(Token("identifier", line, null, word))
                                         } else {
-                                            //TODO: throw exception
+                                            throw CobaltSyntaxError(line, "Expected an identifier, but the word '$word' is not a valid identifier.")
                                         }
                                     }
                                 }
@@ -157,7 +163,7 @@ class Lexer {
                             position += word.length
 
                         } else {
-                            //TODO: throw exception
+                            throw CobaltSyntaxError(line, "Failed finding end of word.")
                         }
                     }
 
@@ -168,13 +174,17 @@ class Lexer {
         }
 
         //Coalesce operators (eg. make a "lessEqual" token from a "less" token followed by an "equal" token)
-        val cleanTokens = coalesceOperators(tokens)
+        val coalescedTokens = coalesceOperators(tokens)
+
+        //Enrich operators with arity and precedence information
+        val enrichedTokens = enrichOperators(coalescedTokens)
 
         //Finished tokenizing the code without error!
-        return cleanTokens
+        return enrichedTokens
 
     }
 
+    //Coalesces operators (eg. make a "lessEqual" token from a "less" token followed by an "equal" token)
     private fun coalesceOperators(tokens:MutableList<Token>):MutableList<Token> {
 
         val tokenTypesToMatch = listOf("equal", "not", "less", "greater")
@@ -184,7 +194,10 @@ class Lexer {
 
         while(position < tokens.count()) {
             val token = tokens[position]
-            if (tokenTypesToMatch.contains(token.type) && tokens[position + 1].type == "equal") {
+            if (position == tokens.count() - 1) {
+                result.add(token)
+                position ++
+            } else if (tokenTypesToMatch.contains(token.type) && tokens[position + 1].type == "equal") {
                 if (token.type == "equal") {
                     result.add(Token("equals", token.line))
                 } else {
@@ -198,6 +211,31 @@ class Lexer {
         }
 
         return result
+    }
+
+    //Enriches operators with arity and precedence information
+    private fun enrichOperators(tokens:MutableList<Token>):MutableList<Token> {
+
+        for (token in tokens) {
+            if (token.type == "and" || token.type == "or") {
+                token.setOperator(1, 2)
+            } else if (token.type == "not") {
+                token.setOperator(2, 1)
+            } else if(token.type == "equals" || token.type == "not_equal" ||
+                token.type == "less" || token.type == "less_equal" ||
+                token.type == "greater" || token.type == "greater_equal") {
+                token.setOperator(3, 2)
+            } else if(token.type == "plus" || token.type == "minus") {
+                token.setOperator(4, 2)
+            } else if(token.type == "asterisk" || token.type == "slash") {
+                token.setOperator(5, 2)
+            } else if(token.type == "tilde") {
+                token.setOperator(6, 1)
+            }
+        }
+
+        return tokens
+
     }
 
     private fun findNextInstanceOfCharInString(code:String, offset:Int, charsToFind:List<Char>, ignoreForChars:List<Char> = listOf()):Int {

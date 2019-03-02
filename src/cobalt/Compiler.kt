@@ -1,19 +1,32 @@
 package cobalt
 
+import cobalt.codegen.ICodeGenerator
 import cobalt.lexing.Lexer
+import cobalt.optimization.Optimizer
 import cobalt.parsing.Parser
 
-class Compiler {
+class Compiler(val generator:ICodeGenerator, val debug:Boolean) {
 
-    private val Lexer:Lexer = Lexer()
-    private val Parser:Parser = Parser()
+    private val lexer = Lexer()
+    private val parser = Parser()
+    private val optimizer = Optimizer()
 
-    fun compile(code:String) {
+    fun compile(code:String):String {
 
-        val tokens = Lexer.tokenize(code)
-        val ast = Parser.parse(tokens)
-        //TODO: optimize AST
-        //TODO: generate code
+        //Lexical analysis
+        val tokens = lexer.tokenize(code)
+
+        //Syntax analysis
+        val ast = parser.parse(tokens)
+
+        //Semantic analysis
+        ast.buildSymbolTables()
+
+        //Optimization
+        optimizer.optimize(ast)
+
+        //Code generation
+        return generator.generateCode(ast)
 
     }
 
